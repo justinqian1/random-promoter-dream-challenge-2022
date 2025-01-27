@@ -99,7 +99,8 @@ class SeqDatasetProb(Dataset):
         probs = cumprobs[1:] - cumprobs[:-1]
         return {"x": X.float(), 
                 "y_probs": np.asarray(probs, dtype=np.float32),
-                "y": float(bin) # type: ignore
+                "y": float(bin), # type: ignore
+                "seq": self.ds.seq.values[i]
                 }
     
     def __len__(self) -> int:
