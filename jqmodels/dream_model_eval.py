@@ -1,6 +1,6 @@
 import pandas as pd
-import torch, sys, os, argparse
-from prixfixe.autosome import AutosomeDataProcessor, AutosomeFirstLayersBlock, AutosomeCoreBlock, AutosomeCoreBlockDropout, AutosomeFinalLayersBlock, AutosomeTrainer, AutosomePredictor
+import torch, os, argparse
+from prixfixe.autosome import AutosomeDataProcessor, AutosomeFirstLayersBlock, AutosomeCoreBlock, AutosomeFinalLayersBlock, AutosomePredictor
 from prixfixe.bhi import BHIFirstLayersBlock, BHICoreBlock
 from prixfixe.unlockdna import UnlockDNACoreBlock
 from prixfixe.prixfixe import PrixFixeNet
@@ -10,25 +10,20 @@ from tqdm import tqdm
 parser = argparse.ArgumentParser()
 parser.add_argument("model_arch",choices=['cnn', 'rnn', 'attn'])
 parser.add_argument("train_path",type=str)
-parser.add_argument("num_epochs",type=int, default=80)
 parser.add_argument("seed",type=int)
 
 args = parser.parse_args()
-if args.num_epochs > 200:
-    print("#epochs and seed may have been mixed up")
-    sys.exit()
 if args.train_path == '2m':
-    TRAIN_DATA_PATH = "/scratch/jqian1/train_2m.txt"
+    TRAIN_DATA_PATH = "/scratch/jqian1/train_30p.txt"
 elif args.train_path == '2p1m_random':
     TRAIN_DATA_PATH = "/scratch/jqian1/train_2p1m.txt"
 elif args.train_path == '2p1m_selected':
     TRAIN_DATA_PATH = "/scratch/jqian1/train_2p1m_selected.txt"
 elif args.train_path == 'all':
     TRAIN_DATA_PATH = "/scratch/jqian1/train.txt"
-elif args.train_path == 'mcd':
-    TRAIN_DATA_PATH = f"/scratch/jqian1/new_train/mc_dropout/2m+{args.model_arch}_{args.seed}.txt"
 else:
     TRAIN_DATA_PATH = f"/scratch/jqian1/new_train/{args.train_path}.txt"
+#TRAIN_DATA_PATH = "data/train.txt"
 VALID_DATA_PATH = "/scratch/jqian1/val.txt" #change filename to actual validaiton data
 TRAIN_BATCH_SIZE = 1024 # replace with 1024, if 1024 doesn't fit in gpu memory, decrease by order of 2 (512,256)
 N_PROCS = 4
@@ -71,15 +66,9 @@ else:
         dropout = 0.2
     )
 if args.model_arch == 'cnn':
-    if args.train_path == 'mcd':
-        core = AutosomeCoreBlockDropout(in_channels=first.out_channels,
-                    out_channels =64,
-                    seqsize=first.infer_outseqsize(),
-                    dropout=0.1)
-    else:
-        core = AutosomeCoreBlock(in_channels=first.out_channels,
-                    out_channels =64,
-                    seqsize=first.infer_outseqsize())
+    core = AutosomeCoreBlock(in_channels=first.out_channels,
+                out_channels =64,
+                seqsize=first.infer_outseqsize())
 elif args.model_arch == 'rnn':
     core = BHICoreBlock(
     in_channels = first.out_channels,
@@ -104,15 +93,6 @@ model = PrixFixeNet(
     generator=generator
 )
 
-trainer = AutosomeTrainer(
-    model,
-    device=torch.device(f"cuda:{CUDA_DEVICE_ID}"),
-    model_dir=f"models_{args.train_path}/{args.model_arch}_{args.seed}",
-    dataprocessor=dataprocessor,
-    num_epochs=args.num_epochs,
-    lr = lr)
-trainer.fit()
-
 model.load_state_dict(torch.load(f'models_{args.train_path}/{args.model_arch}_{args.seed}/model_best.pth', weights_only=True))
 model.eval()
 predictor = AutosomePredictor(model=model, model_pth=f"models_{args.train_path}/{args.model_arch}_{args.seed}/model_best.pth", device=torch.device(f"cuda:0"))
@@ -121,7 +101,6 @@ test_df = pd.read_csv('/scratch/jqian1/test.txt', header=None, sep='\t')
 pred_expr = []
 for seq in tqdm(test_df.iloc[:, 0]):
     pred_expr.append(predictor.predict(seq))
-
 if not os.path.exists(f"/scratch/jqian1/results/{args.train_path}"):
     os.makedirs(f"/scratch/jqian1/results/{args.train_path}")
 evaluate_predictions(pred_expr, discard_public_leaderboard_indices=False, path = f"/scratch/jqian1/results/{args.train_path}/{args.model_arch}_{args.seed}.txt")

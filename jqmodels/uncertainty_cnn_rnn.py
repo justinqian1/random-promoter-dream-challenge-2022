@@ -1,9 +1,8 @@
 import pandas as pd
 import numpy as np
 import torch, os, argparse
-from prixfixe.autosome import AutosomeDataProcessor, AutosomeFirstLayersBlock, AutosomeCoreBlock, AutosomeFinalLayersBlock
+from prixfixe.autosome import AutosomeDataProcessor, AutosomeCoreBlock, AutosomeFinalLayersBlock
 from prixfixe.bhi import BHIFirstLayersBlock, BHICoreBlock
-from prixfixe.unlockdna import UnlockDNACoreBlock
 from prixfixe.prixfixe import PrixFixeNet
 
 parser = argparse.ArgumentParser()
@@ -93,33 +92,12 @@ rnn = PrixFixeNet(
     generator=generator
 )
 
-
-first = AutosomeFirstLayersBlock(in_channels=6,
-                                   out_channels=256,
-                                   seqsize=150)
-
-core = UnlockDNACoreBlock(
-    in_channels = first.out_channels, out_channels= first.out_channels, seqsize = 150, n_blocks = 4,
-                                     kernel_size = 15, rate = 0.1, num_heads = 8)
-
-final = AutosomeFinalLayersBlock(in_channels=core.out_channels,
-                                 seqsize=core.infer_outseqsize())
-attn = PrixFixeNet(
-    first=first,
-    core=core,
-    final=final,
-    generator=generator
-)
-
 cnn = cnn.to(device)
 cnn.load_state_dict(torch.load(f'models_2m/cnn_{args.seed}/model_best.pth', weights_only=True))
 cnn = cnn.eval()
 rnn = rnn.to(device)
 rnn.load_state_dict(torch.load(f'models_2m/rnn_{args.seed}/model_best.pth', weights_only=True))
 rnn = rnn.eval()
-attn = attn.to(device)
-attn.load_state_dict(torch.load(f'models_2m/attn_{args.seed}/model_best.pth', weights_only=True))
-attn = attn.eval()
 
 def revcomp(seq: str):
     complement = str.maketrans("ACGT","TGCA")
@@ -138,10 +116,8 @@ with torch.inference_mode():
         #y = y.float().to(device)
         cnn_pred = cnn.forward(X)
         rnn_pred = rnn.forward(X)
-        attn_pred = attn.forward(X)
-        combined=torch.stack((cnn_pred,rnn_pred,attn_pred),dim=0)
-        combined=combined.cpu().numpy()
-        var = np.var(combined,axis=0)
+        var=torch.abs(cnn_pred-rnn_pred)
+        var=var.cpu().numpy()
         for i in range(var.size):
             if X[i][4,1].item()==0.0:
                 seq2expr.update({seq[i]:y[i].item()})
@@ -157,7 +133,7 @@ keys = list(var2seq.keys())
 keys.sort(reverse=True)
 print(keys[:100])
 
-file = f'/scratch/jqian1/new_train/var_{args.seed}.txt'
+file = f'/scratch/jqian1/new_train/diff_{args.seed}.txt'
 
 with open(file,'w') as f:
     for i in range(100000):
